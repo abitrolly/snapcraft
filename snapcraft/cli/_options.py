@@ -46,6 +46,14 @@ class PromptOption(click.Option):
             value_proc=lambda x: self.process_value(ctx, x),
         )
 
+_BUILD_OPTION_NAMES = [
+    "--target-arch",
+    "--debug",
+    "--shell",
+    "--shell-after",
+    "--destructive-mode",
+    "--work-dir",
+]
 
 class BoolParamType(click.ParamType):
     name = "boolean"
@@ -169,6 +177,7 @@ _PROVIDER_OPTIONS = [
         envvar="SNAPCRAFT_ENABLE_EXPERIMENTAL_PACKAGE_REPOSITORIES",
         supported_providers=["host", "lxd", "managed-host", "multipass"],
     ),
+    dict(metavar="<path>", help="Alternative build directory"),
 ]
 
 
@@ -325,6 +334,7 @@ def get_project(*, is_managed_host: bool = False, **kwargs):
         target_deb_arch=kwargs.pop("target_arch", None),
         snapcraft_yaml_file_path=snapcraft_yaml_file_path,
         is_managed_host=is_managed_host,
+        work_dir=kwargs.pop("work_dir"),
     )
     # TODO: this should be automatic on get_project().
     # This is not the complete meta parsed by the project loader.
