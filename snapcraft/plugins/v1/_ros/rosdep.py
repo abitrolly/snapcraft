@@ -15,11 +15,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import pathlib
 import logging
 import re
 import shutil
 import subprocess
 import sys
+from typing import Dict, Set
 
 from snapcraft.internal import errors, repo
 
@@ -57,13 +59,51 @@ class RosdepInitializationError(errors.SnapcraftError):
         super().__init__(message=message)
 
 
+def _parse_rosdep_resolve_dependencies(
+    dependency_name: str, output: str
+) -> Dict[str, Set[str]]:
+    # The output of rosdep follows the pattern:
+    #
+    #    #apt
+    #    package1
+    #    package2
+    #    #pip
+    #    pip-package1
+    #    pip-package2
+    #
+    # Split these out into a dict of dependency type -> dependencies.
+    delimiters = re.compile(r"\n|\s")
+    lines = delimiters.split(output)
+    dependencies: Dict[str, Set[str]] = {}
+    dependency_set = None
+    for line in lines:
+        line = line.strip()
+        if line.startswith("#"):
+            key = line.strip("# ")
+            dependencies[key] = set()
+            dependency_set = dependencies[key]
+        elif line:
+            if dependency_set is None:
+                raise RosdepUnexpectedResultError(dependency_name, output)
+            else:
+                dependency_set.add(line)
+
+    return dependencies
+
+
 class Rosdep:
-    def __init__(self, *, ros_distro, ros_package_path, rosdep_path, ubuntu_distro):
+    def __init__(
+        self, *, ros_distro, ros_package_path, rosdep_path, ubuntu_distro, base
+    ):
         self._ros_distro = ros_distro
         self._ros_package_path = ros_package_path
         self._rosdep_path = rosdep_path
         self._ubuntu_distro = ubuntu_distro
+        self._base = base
 
+        self._rosdep_stage_packages_path = (
+            pathlib.Path(self._rosdep_path) / "stage_packages"
+        )
         self._rosdep_install_path = os.path.join(self._rosdep_path, "install")
         self._rosdep_sources_path = os.path.join(self._rosdep_path, "sources.list.d")
         self._rosdep_cache_path = os.path.join(self._rosdep_path, "cache")
@@ -77,12 +117,19 @@ class Rosdep:
         os.makedirs(self._rosdep_sources_path)
         os.makedirs(self._rosdep_install_path, exist_ok=True)
         os.makedirs(self._rosdep_cache_path, exist_ok=True)
+        self._rosdep_stage_packages_path.mkdir(exist_ok=True)
 
         # rosdep isn't necessarily a dependency of the project, so we'll unpack
         # it off to the side and use it from there.
         logger.info("Installing rosdep...")
-        repo.Ubuntu.install_stage_packages(
-            package_names=["python-rosdep"], install_dir=self._rosdep_install_path
+        repo.Ubuntu.fetch_stage_packages(
+            package_names=["python-rosdep"],
+            stage_packages_path=self._rosdep_stage_packages_path,
+            base=self._base,
+        )
+        repo.Ubuntu.unpack_stage_packages(
+            stage_packages_path=self._rosdep_stage_packages_path,
+            install_path=pathlib.Path(self._rosdep_install_path),
         )
 
         logger.info("Initializing rosdep database...")
@@ -152,33 +199,7 @@ class Rosdep:
         except subprocess.CalledProcessError:
             raise RosdepDependencyNotResolvedError(dependency_name)
 
-        # The output of rosdep follows the pattern:
-        #
-        #    #apt
-        #    package1
-        #    package2
-        #    #pip
-        #    pip-package1
-        #    pip-package2
-        #
-        # Split these out into a dict of dependency type -> dependencies.
-        delimiters = re.compile(r"\n|\s")
-        lines = delimiters.split(output)
-        dependencies = {}
-        dependency_set = None
-        for line in lines:
-            line = line.strip()
-            if line.startswith("#"):
-                key = line.strip("# ")
-                dependencies[key] = set()
-                dependency_set = dependencies[key]
-            elif line:
-                if dependency_set is None:
-                    raise RosdepUnexpectedResultError(dependency_name, output)
-                else:
-                    dependency_set.add(line)
-
-        return dependencies
+        return _parse_rosdep_resolve_dependencies(dependency_name, output)
 
     def _run(self, arguments):
         env = os.environ.copy()

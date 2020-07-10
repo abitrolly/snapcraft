@@ -269,18 +269,6 @@ class SnapcraftOrganizeError(SnapcraftError):
         super().__init__(part_name=part_name, message=message)
 
 
-class MissingCommandError(SnapcraftError):
-
-    fmt = (
-        "Failed to run command: "
-        "One or more packages are missing, please install:"
-        " {required_commands!r}"
-    )
-
-    def __init__(self, required_commands):
-        super().__init__(required_commands=required_commands)
-
-
 class InvalidWikiEntryError(SnapcraftError):
 
     fmt = (
@@ -752,3 +740,16 @@ class SnapcraftPluginAssertionError(SnapcraftException):
 
     def get_resolution(self) -> str:
         return "Ensure the part's configuration and sources are correct."
+
+
+class SnapcraftPluginBuildError(SnapcraftException):
+    """An exception to raise when the PluginV2 build fails at runtime."""
+
+    def __init__(self, *, part_name: str) -> None:
+        self._part_name = part_name
+
+    def get_brief(self) -> str:
+        return f"Failed to build {self._part_name!r}."
+
+    def get_resolution(self) -> str:
+        return "Check the build logs and ensure the part's configuration and sources are correct."

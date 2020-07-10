@@ -5,6 +5,7 @@ environment:
   SNAP/test_apt_key_name: test-apt-key-name
   SNAP/test_apt_keyserver: test-apt-keyserver
   SNAP/test_apt_ppa: test-apt-ppa
+  SNAPCRAFT_BUILD_ENVIRONMENT: ""
 
 systems:
   - ubuntu-16*
@@ -18,7 +19,12 @@ prepare: |
 
 restore: |
   cd "../snaps/$SNAP"
-  snapcraft clean
+  if [ "$SPREAD_SYSTEM" = "ubuntu-16.04-64" ] || [ "$SPREAD_SYSTEM" = "ubuntu-18.04-64" ] || [ "$SPREAD_SYSTEM" = "ubuntu-20.04-64" ]; then
+      snapcraft clean --use-lxd
+  else
+      snapcraft --destructive-mode --enable-experimental-package-repositories
+  fi
+
   rm -f ./*.snap
 
   #shellcheck source=tests/spread/tools/snapcraft-yaml.sh
@@ -28,8 +34,15 @@ restore: |
 execute: |
   cd "../snaps/$SNAP"
 
-  # Build what we have and verify the snap runs as expected.
-  snapcraft
+  # Build what we have.
+  # We cannot use --use-lxd for autopkgtest so we resort to --destructive-mode there.
+  if [ "$SPREAD_SYSTEM" = "ubuntu-16.04-64" ] || [ "$SPREAD_SYSTEM" = "ubuntu-18.04-64" ] || [ "$SPREAD_SYSTEM" = "ubuntu-20.04-64" ]; then
+      snapcraft --use-lxd --enable-experimental-package-repositories
+  else
+      snapcraft --destructive-mode --enable-experimental-package-repositories
+  fi
+
+  # And verify the snap runs as expected.
   snap install "${SNAP}"_1.0_*.snap --dangerous
   snap_executable="${SNAP}.test-ppa"
   [ "$("${snap_executable}")" = "hello!" ]

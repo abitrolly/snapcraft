@@ -17,12 +17,12 @@
 import distutils.util
 import os
 import sys
+from typing import Any, Dict, List, Optional
 
 import click
-from typing import Dict, List, Optional
 
 from snapcraft.project import Project, get_snapcraft_yaml
-from snapcraft.cli.echo import confirm, prompt
+from snapcraft.cli.echo import confirm, prompt, warning
 from snapcraft.internal import common, errors
 from snapcraft.internal.meta.snap import Snap
 
@@ -70,12 +70,12 @@ class BoolParamType(click.ParamType):
 _SUPPORTED_PROVIDERS = ["host", "lxd", "multipass"]
 _HIDDEN_PROVIDERS = ["managed-host"]
 _ALL_PROVIDERS = _SUPPORTED_PROVIDERS + _HIDDEN_PROVIDERS
-_PROVIDER_OPTIONS = [
+_PROVIDER_OPTIONS: List[Dict[str, Any]] = [
     dict(
         param_decls="--target-arch",
         metavar="<arch>",
         help="Target architecture to cross compile to",
-        supported_providers=["host", "lxd", "managed-host", "multipass"],
+        supported_providers=["host", "lxd", "multipass"],
     ),
     dict(
         param_decls="--debug",
@@ -162,6 +162,13 @@ _PROVIDER_OPTIONS = [
         supported_providers=["host", "lxd", "managed-host", "multipass"],
         hidden=True,
     ),
+    dict(
+        param_decls="--enable-experimental-package-repositories",
+        is_flag=True,
+        help="Enable `package-repositories` support in schema.",
+        envvar="SNAPCRAFT_ENABLE_EXPERIMENTAL_PACKAGE_REPOSITORIES",
+        supported_providers=["host", "lxd", "managed-host", "multipass"],
+    ),
 ]
 
 
@@ -224,6 +231,18 @@ def _sanity_check_build_provider_flags(build_provider: str, **kwargs) -> None:
         if key in sys.argv and build_provider not in supported_providers:
             raise click.BadArgumentUsage(
                 f"{key} cannot be used with build provider {build_provider!r}"
+            )
+
+    # Check if running as sudo.
+    if os.getenv("SUDO_USER") and os.geteuid() == 0:
+        if build_provider in ["lxd", "multipass"]:
+            raise errors.SnapcraftEnvironmentError(
+                f"'sudo' cannot be used with build provider {build_provider!r}"
+            )
+
+        if build_provider in ["host"]:
+            click.echo(
+                "Running with 'sudo' may cause permission errors and is discouraged. Use 'sudo' when cleaning."
             )
 
 
@@ -337,3 +356,20 @@ def apply_host_provider_flags(build_provider_flags: Dict[str, str]) -> None:
                 os.environ.pop(key)
         else:
             os.environ[key] = str(value)
+
+    # Clear false/unset boolean environment flags.
+    for option in _PROVIDER_OPTIONS:
+        if not option.get("is_flag", False):
+            continue
+
+        env_name = option.get("envvar")
+        if env_name is None:
+            continue
+
+        if not build_provider_flags.get(env_name):
+            os.environ.pop(env_name, None)
+            continue
+
+    # Log any experimental flags in use.
+    if build_provider_flags.get("SNAPCRAFT_ENABLE_EXPERIMENTAL_PACKAGE_REPOSITORIES"):
+        warning("*EXPERIMENTAL* package-repositories in use")

@@ -20,6 +20,7 @@ import glob
 import itertools
 import logging
 import os
+import pathlib
 import re
 import shutil
 import stat
@@ -166,10 +167,17 @@ class BaseRepo:
         raise errors.NoNativeBackendError()
 
     @classmethod
-    def install_stage_packages(
-        cls, *, package_names: List[str], install_dir: str
+    def fetch_stage_packages(
+        cls, *, package_names: List[str], base: str, stage_packages_path: pathlib.Path
     ) -> List[str]:
-        """Install stage packages to install_dir."""
+        """Fetch stage packages to stage_packages_path."""
+        raise errors.NoNativeBackendError()
+
+    @classmethod
+    def unpack_stage_packages(
+        cls, *, stage_packages_path: pathlib.Path, install_path: pathlib.Path
+    ) -> None:
+        """Unpack stage packages to install_path."""
         raise errors.NoNativeBackendError()
 
     @classmethod
@@ -330,3 +338,14 @@ def _fix_filemode(path: str) -> None:
     if mode & 0o4000 or mode & 0o2000:
         logger.warning("Removing suid/guid from {}".format(path))
         os.chmod(path, mode & 0o1777)
+
+
+def get_pkg_name_parts(pkg_name):
+    """Break package name into base parts"""
+
+    name = pkg_name
+    version = None
+    with contextlib.suppress(ValueError):
+        name, version = pkg_name.split("=")
+
+    return name, version
